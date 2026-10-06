@@ -1,0 +1,11 @@
+{
+  "name": "pocketbase-openworkflow-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild web/main.js --bundle --format=iife --target=es2022 --outfile=ui/main.js && cp web/workflows.css ui/workflows.css"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
