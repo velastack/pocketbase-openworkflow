@@ -57,12 +57,12 @@ go test ./...
 go run ./examples/base serve
 ```
 
-To work against a local PocketBase or velabase checkout, create a `go.work` (gitignored):
+To work against a local PocketBase checkout, create a `go.work` (gitignored):
 
 ```
 go 1.27
 
 use .
 
-replace github.com/pocketbase/pocketbase => ../velabase
+replace github.com/pocketbase/pocketbase => ../pocketbase
 ```
