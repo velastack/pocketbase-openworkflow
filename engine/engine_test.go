@@ -45,8 +45,8 @@ func TestMigrationsAreIdempotentAndVersioned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Fatalf("migration version = %d, want 5", v)
+	if v != 7 {
+		t.Fatalf("migration version = %d, want 7", v)
 	}
 	// Running again must be a no-op.
 	if err := e.migrate(); err != nil {

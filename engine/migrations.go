@@ -7,10 +7,10 @@ import (
 )
 
 // owMigration is a single versioned schema migration. The full set in
-// owMigrations is the OpenWorkflow SQLite schema (migrations 0-5).
+// owMigrations is the OpenWorkflow SQLite schema (migrations 0-7).
 //
 // Versions are recorded in OpenWorkflow's own "openworkflow_migrations" table
-// (seeded through v5) so a native OpenWorkflow SQLite backend opening the same
+// (seeded through v7) so a native OpenWorkflow SQLite backend opening the same
 // file sees it as up to date and no-ops, preserving byte-level interop.
 // Versions 0/2/3 have no DDL (markers kept for parity with the Postgres backend).
 type owMigration struct {
@@ -118,6 +118,31 @@ var owMigrations = []owMigration{
 		`CREATE INDEX IF NOT EXISTS "step_attempts_signal_wait_idx"
 			ON "step_attempts" ("namespace_id", json_extract("context", '$.signal'))
 			WHERE "kind" = 'signal-wait' AND "status" = 'running'`,
+	}},
+	// 6-7 add no IF NOT EXISTS guards, matching upstream: ALTER TABLE ADD COLUMN
+	// has none, and the version gate in migrate already makes them run once.
+	{version: 6, stmts: []string{
+		`ALTER TABLE "step_attempts" ADD COLUMN "step_index" INTEGER`,
+	}},
+	{version: 7, stmts: []string{
+		`ALTER TABLE "workflow_runs" ADD COLUMN "workflow_schedule_id" TEXT`,
+		`CREATE TABLE "workflow_schedules" (
+			"namespace_id" TEXT NOT NULL,
+			"id" TEXT NOT NULL,
+			--
+			"workflow_name" TEXT NOT NULL,
+			"input" TEXT,
+			"cron" TEXT NOT NULL,
+			"timezone" TEXT NOT NULL,
+			"next_run_at" TEXT,
+			"created_at" TEXT NOT NULL,
+			"updated_at" TEXT NOT NULL,
+			PRIMARY KEY ("namespace_id", "id")
+		)`,
+		`CREATE INDEX "workflow_schedules_due_idx"
+			ON "workflow_schedules" ("namespace_id", "next_run_at", "id") WHERE "next_run_at" IS NOT NULL`,
+		`CREATE INDEX "workflow_schedules_created_at_idx"
+			ON "workflow_schedules" ("namespace_id", "created_at", "id")`,
 	}},
 }
 

@@ -79,6 +79,7 @@ type WorkflowRun struct {
 	NamespaceID                  string          `json:"namespaceId"`
 	ID                           string          `json:"id"`
 	WorkflowName                 string          `json:"workflowName"`
+	WorkflowScheduleID           *string         `json:"workflowScheduleId"`
 	Version                      *string         `json:"version"`
 	Status                       string          `json:"status"`
 	IdempotencyKey               *string         `json:"idempotencyKey"`
@@ -105,6 +106,7 @@ type StepAttempt struct {
 	ID                          string          `json:"id"`
 	WorkflowRunID               string          `json:"workflowRunId"`
 	StepName                    string          `json:"stepName"`
+	StepIndex                   *int64          `json:"stepIndex"`
 	Kind                        string          `json:"kind"`
 	Status                      string          `json:"status"`
 	Config                      json.RawMessage `json:"config"`
@@ -135,6 +137,7 @@ type workflowRunRow struct {
 	NamespaceID                  string         `db:"namespace_id"`
 	ID                           string         `db:"id"`
 	WorkflowName                 string         `db:"workflow_name"`
+	WorkflowScheduleID           sql.NullString `db:"workflow_schedule_id"`
 	Version                      sql.NullString `db:"version"`
 	Status                       string         `db:"status"`
 	IdempotencyKey               sql.NullString `db:"idempotency_key"`
@@ -160,6 +163,7 @@ type stepAttemptRow struct {
 	ID                          string         `db:"id"`
 	WorkflowRunID               string         `db:"workflow_run_id"`
 	StepName                    string         `db:"step_name"`
+	StepIndex                   sql.NullInt64  `db:"step_index"`
 	Kind                        string         `db:"kind"`
 	Status                      string         `db:"status"`
 	Config                      sql.NullString `db:"config"`
@@ -179,6 +183,7 @@ func (r *workflowRunRow) toWorkflowRun() *WorkflowRun {
 		NamespaceID:                  r.NamespaceID,
 		ID:                           r.ID,
 		WorkflowName:                 r.WorkflowName,
+		WorkflowScheduleID:           nullToPtr(r.WorkflowScheduleID),
 		Version:                      nullToPtr(r.Version),
 		Status:                       r.Status,
 		IdempotencyKey:               nullToPtr(r.IdempotencyKey),
@@ -206,6 +211,7 @@ func (r *stepAttemptRow) toStepAttempt() *StepAttempt {
 		ID:                          r.ID,
 		WorkflowRunID:               r.WorkflowRunID,
 		StepName:                    r.StepName,
+		StepIndex:                   nullIntToPtr(r.StepIndex),
 		Kind:                        r.Kind,
 		Status:                      r.Status,
 		Config:                      nullToRaw(r.Config),
@@ -231,6 +237,14 @@ func nullToPtr(n sql.NullString) *string {
 	return &v
 }
 
+func nullIntToPtr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
+}
+
 func nullToRaw(n sql.NullString) json.RawMessage {
 	if !n.Valid {
 		return nil
@@ -252,6 +266,13 @@ func ptrToNull(p *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *p, Valid: true}
+}
+
+func int64PtrToNull(p *int64) sql.NullInt64 {
+	if p == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *p, Valid: true}
 }
 
 func timePtrToNull(t *time.Time) sql.NullString {

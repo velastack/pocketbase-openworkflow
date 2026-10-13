@@ -13,6 +13,7 @@ type CreateStepAttemptParams struct {
 	WorkflowRunID string
 	WorkerID      string // fences the insert: the run must be running and held by this worker
 	StepName      string
+	StepIndex     *int64 // position in the workflow's step order; nil for legacy workers
 	Kind          string
 	Config        json.RawMessage
 	Context       json.RawMessage
@@ -53,23 +54,24 @@ func (e *Engine) CreateStepAttempt(ns string, p CreateStepAttemptParams) (*StepA
 	now := isoNow()
 	_, err := e.writeDB.NewQuery(`
 		INSERT INTO "step_attempts" (
-			"namespace_id", "id", "workflow_run_id", "step_name", "kind", "status",
+			"namespace_id", "id", "workflow_run_id", "step_name", "step_index", "kind", "status",
 			"config", "context", "started_at", "created_at", "updated_at"
 		)
 		SELECT
-			{:ns}, {:id}, {:runId}, {:stepName}, {:kind}, 'running',
+			{:ns}, {:id}, {:runId}, {:stepName}, {:stepIndex}, {:kind}, 'running',
 			{:config}, {:context}, {:now}, {:now}, {:now}
 		FROM "workflow_runs"
 		WHERE ` + runningWorkflowRunOwnedWhere).Bind(dbx.Params{
-		"ns":       ns,
-		"id":       id,
-		"runId":    p.WorkflowRunID,
-		"stepName": p.StepName,
-		"kind":     p.Kind,
-		"config":   rawToNull(p.Config),
-		"context":  rawToNull(p.Context),
-		"now":      now,
-		"worker":   p.WorkerID,
+		"ns":        ns,
+		"id":        id,
+		"runId":     p.WorkflowRunID,
+		"stepName":  p.StepName,
+		"stepIndex": int64PtrToNull(p.StepIndex),
+		"kind":      p.Kind,
+		"config":    rawToNull(p.Config),
+		"context":   rawToNull(p.Context),
+		"now":       now,
+		"worker":    p.WorkerID,
 	}).Execute()
 	if err != nil {
 		return nil, err
@@ -169,7 +171,9 @@ func (e *Engine) SetStepAttemptChildWorkflowRun(ns, runID, stepID, workerID, chi
 }
 
 // ListStepAttempts returns a cursor-paginated page of a run's step attempts
-// (oldest first).
+// (oldest first). Attempts created in the same millisecond are ordered by step
+// index, so the cursor carries it too; a NULL index (legacy workers) sorts
+// first, as -1.
 func (e *Engine) ListStepAttempts(ns, workflowRunID string, p ListParams) ([]*StepAttempt, paginationMeta, error) {
 	limit := clampLimit(p.Limit)
 	cur, err := decodeListCursor(p.After, p.Before)
@@ -183,14 +187,18 @@ func (e *Engine) ListStepAttempts(ns, workflowRunID string, p ListParams) ([]*St
 	where := `"namespace_id" = {:ns} AND "workflow_run_id" = {:runId}`
 	params := dbx.Params{"ns": ns, "runId": workflowRunID}
 	if cur != nil {
-		where += ` AND ("created_at", "id") ` + op + ` ({:cca}, {:cid})`
+		where += ` AND ("created_at", COALESCE("step_index", -1), "id") ` + op + ` ({:cca}, {:csi}, {:cid})`
 		params["cca"] = cur.CreatedAt
+		params["csi"] = int64(-1)
+		if cur.StepIndex != nil {
+			params["csi"] = *cur.StepIndex
+		}
 		params["cid"] = cur.ID
 	}
 	params["lim"] = limit + 1
 
 	query := `SELECT * FROM "step_attempts" WHERE ` + where +
-		` ORDER BY "created_at" ` + order + `, "id" ` + order + ` LIMIT {:lim}`
+		` ORDER BY "created_at" ` + order + `, "step_index" ` + order + `, "id" ` + order + ` LIMIT {:lim}`
 
 	var rows []stepAttemptRow
 	if err := e.readDB.NewQuery(query).Bind(params).All(&rows); err != nil {
@@ -201,8 +209,8 @@ func (e *Engine) ListStepAttempts(ns, workflowRunID string, p ListParams) ([]*St
 	for i := range rows {
 		steps[i] = rows[i].toStepAttempt()
 	}
-	data, meta := buildPaginatedResponse(steps, limit, hasAfter, hasBefore, func(s *StepAttempt) (string, string) {
-		return s.CreatedAt, s.ID
+	data, meta := buildPaginatedResponse(steps, limit, hasAfter, hasBefore, func(s *StepAttempt) string {
+		return encodeStepCursor(listCursor{CreatedAt: s.CreatedAt, StepIndex: s.StepIndex, ID: s.ID})
 	})
 	return data, meta, nil
 }

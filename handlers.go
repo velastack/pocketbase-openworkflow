@@ -18,6 +18,15 @@ func (p *plugin) registerRoutes(se *core.ServeEvent) {
 	g := se.Router.Group(p.config.RoutePrefix + "/{namespace}")
 	g.Bind(apis.RequireSuperuserAuth())
 
+	// Recurring schedules. Workers poll /schedules/enqueue like /claim, so its
+	// success request log is skipped too.
+	g.POST("/schedules", p.handleUpsertSchedule)
+	g.GET("/schedules", p.handleListSchedules)
+	g.POST("/schedules/enqueue", p.handleEnqueueScheduledRuns).Bind(apis.SkipSuccessActivityLog())
+	g.GET("/schedules/{scheduleId}", p.handleGetSchedule)
+	g.DELETE("/schedules/{scheduleId}", p.handleDeleteSchedule)
+	g.POST("/schedules/{scheduleId}/pause", p.handlePauseSchedule)
+
 	// Workflow runs
 	g.POST("/runs", p.handleCreateRun)
 	// The admin Workflows tab polls the list and the counts while it is open,
@@ -35,6 +44,7 @@ func (p *plugin) registerRoutes(se *core.ServeEvent) {
 	g.POST("/runs/{id}/fail", p.handleFailRun)
 	g.POST("/runs/{id}/reschedule", p.handleReschedule)
 	g.POST("/runs/{id}/cancel", p.handleCancel)
+	g.POST("/runs/{id}/rerun", p.handleRerun)
 
 	// Step attempts
 	g.POST("/runs/{id}/steps", p.handleCreateStep)
@@ -350,6 +360,130 @@ func (p *plugin) handleCancel(e *core.RequestEvent) error {
 	return e.JSON(http.StatusOK, map[string]any{"run": run})
 }
 
+func (p *plugin) handleRerun(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	var b struct {
+		FromStep *string         `json:"fromStep"`
+		Context  json.RawMessage `json:"context"`
+	}
+	if err := bind(e, &b); err != nil {
+		return err
+	}
+	run, err := p.engine.RerunWorkflowRun(ns, e.Request.PathValue("id"), engine.RerunWorkflowRunParams{
+		FromStep: b.FromStep,
+		Context:  b.Context,
+	})
+	if err != nil {
+		return toAPIError(err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"run": run})
+}
+
+// --- schedule handlers ---
+
+func (p *plugin) handleUpsertSchedule(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	var b struct {
+		ID           string          `json:"id"`
+		WorkflowName string          `json:"workflowName"`
+		Input        json.RawMessage `json:"input"`
+		Cron         string          `json:"cron"`
+		Timezone     string          `json:"timezone"`
+	}
+	if err := bind(e, &b); err != nil {
+		return err
+	}
+	schedule, err := p.engine.UpsertWorkflowSchedule(ns, engine.WorkflowScheduleDefinition{
+		ID:           b.ID,
+		WorkflowName: b.WorkflowName,
+		Input:        b.Input,
+		Cron:         b.Cron,
+		Timezone:     b.Timezone,
+	})
+	if err != nil {
+		return toAPIError(err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"schedule": schedule})
+}
+
+func (p *plugin) handleGetSchedule(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	schedule, err := p.engine.GetWorkflowSchedule(ns, e.Request.PathValue("scheduleId"))
+	if err != nil {
+		return toAPIError(err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"schedule": schedule})
+}
+
+func (p *plugin) handleListSchedules(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	data, meta, err := p.engine.ListWorkflowSchedules(ns, listParams(e))
+	if err != nil {
+		return toAPIError(err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"data": data, "pagination": meta})
+}
+
+func (p *plugin) handlePauseSchedule(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	var b struct {
+		Paused bool `json:"paused"`
+	}
+	if err := bind(e, &b); err != nil {
+		return err
+	}
+	schedule, err := p.engine.PauseWorkflowSchedule(ns, e.Request.PathValue("scheduleId"), b.Paused)
+	if err != nil {
+		return toAPIError(err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"schedule": schedule})
+}
+
+func (p *plugin) handleDeleteSchedule(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	if err := p.engine.DeleteWorkflowSchedule(ns, e.Request.PathValue("scheduleId")); err != nil {
+		return toAPIError(err)
+	}
+	return e.NoContent(http.StatusNoContent)
+}
+
+func (p *plugin) handleEnqueueScheduledRuns(e *core.RequestEvent) error {
+	ns, err := p.begin(e)
+	if err != nil {
+		return err
+	}
+	var b struct {
+		Before string `json:"before"`
+		Limit  int    `json:"limit"`
+	}
+	if err := bind(e, &b); err != nil {
+		return err
+	}
+	count, err := p.engine.EnqueueScheduledRuns(ns, b.Before, b.Limit)
+	if err != nil {
+		return toAPIError(err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"count": count})
+}
+
 // --- step attempt handlers ---
 
 func (p *plugin) handleCreateStep(e *core.RequestEvent) error {
@@ -358,11 +492,12 @@ func (p *plugin) handleCreateStep(e *core.RequestEvent) error {
 		return err
 	}
 	var b struct {
-		WorkerID string          `json:"workerId"`
-		StepName string          `json:"stepName"`
-		Kind     string          `json:"kind"`
-		Config   json.RawMessage `json:"config"`
-		Context  json.RawMessage `json:"context"`
+		WorkerID  string          `json:"workerId"`
+		StepName  string          `json:"stepName"`
+		StepIndex *int64          `json:"stepIndex"`
+		Kind      string          `json:"kind"`
+		Config    json.RawMessage `json:"config"`
+		Context   json.RawMessage `json:"context"`
 	}
 	if err := bind(e, &b); err != nil {
 		return err
@@ -371,6 +506,7 @@ func (p *plugin) handleCreateStep(e *core.RequestEvent) error {
 		WorkflowRunID: e.Request.PathValue("id"),
 		WorkerID:      b.WorkerID,
 		StepName:      b.StepName,
+		StepIndex:     b.StepIndex,
 		Kind:          b.Kind,
 		Config:        defaultJSON(b.Config),
 		Context:       b.Context,

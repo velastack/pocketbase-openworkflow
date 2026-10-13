@@ -646,8 +646,8 @@ func (e *Engine) ListWorkflowRuns(ns string, p ListRunsParams) ([]*WorkflowRun, 
 	for i := range rows {
 		runs[i] = rows[i].toWorkflowRun()
 	}
-	data, meta := buildPaginatedResponse(runs, limit, hasAfter, hasBefore, func(r *WorkflowRun) (string, string) {
-		return r.CreatedAt, r.ID
+	data, meta := buildPaginatedResponse(runs, limit, hasAfter, hasBefore, func(r *WorkflowRun) string {
+		return encodeCursor(listCursor{CreatedAt: r.CreatedAt, ID: r.ID})
 	})
 	return data, meta, nil
 }

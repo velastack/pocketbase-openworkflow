@@ -44,18 +44,24 @@ func (e *Engine) SendSignal(ns string, p SendSignalParams) ([]string, error) {
 			}
 		}
 
-		// Find all running waiters for this signal.
+		// Find all running waiters for this signal. A canceled (or otherwise
+		// finished) run keeps its signal-wait step 'running', so the run's own
+		// status must be checked too.
 		var waiters []struct {
 			ID            string `db:"id"`
 			WorkflowRunID string `db:"workflow_run_id"`
 		}
 		if err := tx.NewQuery(`
-			SELECT "id", "workflow_run_id"
-			FROM "step_attempts"
-			WHERE "namespace_id" = {:ns}
-			  AND "kind" = 'signal-wait'
-			  AND "status" = 'running'
-			  AND json_extract("context", '$.signal') = {:signal}`).
+			SELECT sa."id", sa."workflow_run_id"
+			FROM "workflow_runs" wr
+			JOIN "step_attempts" sa
+			  ON sa."namespace_id" = wr."namespace_id"
+			  AND sa."workflow_run_id" = wr."id"
+			WHERE sa."namespace_id" = {:ns}
+			  AND sa."kind" = 'signal-wait'
+			  AND sa."status" = 'running'
+			  AND json_extract(sa."context", '$.signal') = {:signal}
+			  AND wr."status" IN ('pending', 'running', 'sleeping')`).
 			Bind(dbx.Params{"ns": ns, "signal": p.Signal}).
 			All(&waiters); err != nil {
 			return err
