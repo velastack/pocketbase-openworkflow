@@ -6,9 +6,10 @@ import (
 	"fmt"
 )
 
-// Cursors encode {createdAt, id} as base64 JSON. createdAt is stored and emitted
-// in the same canonical ISO form, so a row's stored string round-trips and can be
-// bound verbatim in the row-value comparison.
+// Cursors encode {createdAt, id} as base64 JSON (step attempt cursors also carry
+// stepIndex, matching OpenWorkflow's encodeCursor). createdAt is stored and
+// emitted in the same canonical ISO form, so a row's stored string round-trips
+// and can be bound verbatim in the row-value comparison.
 
 const (
 	defaultPageSize = 100
@@ -30,17 +31,30 @@ func clampLimit(limit int) int {
 	return limit
 }
 
-// listCursor is a decoded pagination cursor.
+// listCursor is a decoded pagination cursor. StepIndex is nil when the cursor
+// has no stepIndex or it is null.
 type listCursor struct {
 	CreatedAt string
+	StepIndex *int64
 	ID        string
 }
 
-func encodeCursor(createdAt, id string) string {
+func encodeCursor(c listCursor) string {
 	payload, _ := json.Marshal(struct {
 		CreatedAt string `json:"createdAt"`
 		ID        string `json:"id"`
-	}{CreatedAt: createdAt, ID: id})
+	}{CreatedAt: c.CreatedAt, ID: c.ID})
+	return base64.StdEncoding.EncodeToString(payload)
+}
+
+// encodeStepCursor always emits stepIndex (null when unset), like OpenWorkflow
+// does for step attempts.
+func encodeStepCursor(c listCursor) string {
+	payload, _ := json.Marshal(struct {
+		CreatedAt string `json:"createdAt"`
+		StepIndex *int64 `json:"stepIndex"`
+		ID        string `json:"id"`
+	}{CreatedAt: c.CreatedAt, StepIndex: c.StepIndex, ID: c.ID})
 	return base64.StdEncoding.EncodeToString(payload)
 }
 
@@ -51,12 +65,16 @@ func decodeCursor(encoded string) (*listCursor, error) {
 	}
 	var p struct {
 		CreatedAt string `json:"createdAt"`
+		StepIndex *int64 `json:"stepIndex"`
 		ID        string `json:"id"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("invalid cursor: %w", ErrBadRequest)
 	}
-	return &listCursor{CreatedAt: p.CreatedAt, ID: p.ID}, nil
+	if p.StepIndex != nil && *p.StepIndex < 0 {
+		return nil, fmt.Errorf("invalid cursor: %w", ErrBadRequest)
+	}
+	return &listCursor{CreatedAt: p.CreatedAt, StepIndex: p.StepIndex, ID: p.ID}, nil
 }
 
 // decodeListCursor rejects specifying both after+before, otherwise decodes
@@ -99,9 +117,8 @@ type paginationMeta struct {
 }
 
 // buildPaginatedResponse trims/reverses an over-fetched (limit+1) batch and
-// computes the next/prev cursors. cursorOf returns the (createdAt, id) used to
-// encode a row's cursor.
-func buildPaginatedResponse[T any](rows []T, limit int, hasAfter, hasBefore bool, cursorOf func(T) (string, string)) ([]T, paginationMeta) {
+// computes the next/prev cursors. cursorOf returns the encoded cursor of a row.
+func buildPaginatedResponse[T any](rows []T, limit int, hasAfter, hasBefore bool, cursorOf func(T) string) ([]T, paginationMeta) {
 	overflow := len(rows) > limit
 
 	ordered := rows
@@ -118,11 +135,11 @@ func buildPaginatedResponse[T any](rows []T, limit int, hasAfter, hasBefore bool
 
 	meta := paginationMeta{}
 	if hasNext && len(data) > 0 {
-		c := encodeCursor(cursorOf(data[len(data)-1]))
+		c := cursorOf(data[len(data)-1])
 		meta.Next = &c
 	}
 	if hasPrev && len(data) > 0 {
-		c := encodeCursor(cursorOf(data[0]))
+		c := cursorOf(data[0])
 		meta.Prev = &c
 	}
 	return data, meta

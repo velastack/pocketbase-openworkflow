@@ -44,11 +44,16 @@ Every route lives under `{RoutePrefix}/{namespace}` and requires superuser auth.
 | `POST` / `GET` | `/runs` |
 | `GET` | `/runs/counts`, `/runs/{id}` |
 | `POST` | `/claim` |
-| `POST` | `/runs/{id}/lease`, `/sleep`, `/complete`, `/fail`, `/reschedule`, `/cancel` |
+| `POST` | `/runs/{id}/lease`, `/sleep`, `/complete`, `/fail`, `/reschedule`, `/cancel`, `/rerun` |
 | `POST` / `GET` | `/runs/{id}/steps` |
 | `GET` | `/steps/{stepId}`, `/steps/{stepId}/signal` |
 | `POST` | `/runs/{id}/steps/{stepId}/complete`, `/fail`, `/child` |
 | `POST` | `/signals` |
+| `POST` / `GET` | `/schedules` |
+| `GET` / `DELETE` | `/schedules/{scheduleId}` |
+| `POST` | `/schedules/{scheduleId}/pause`, `/schedules/enqueue` |
+
+Recurring schedules compute their next run time on the server. `engine/cron.go` ports the cron-parser logic that OpenWorkflow uses, including its DST behavior. `engine/testdata/cron_golden.json` holds occurrences computed by OpenWorkflow itself. To regenerate it after an `openworkflow` upgrade, run `npm run cron-golden`.
 
 ## Development
 
