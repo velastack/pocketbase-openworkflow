@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/dbx"
 )
 
 // Engine is an OpenWorkflow Backend implementation over a dedicated SQLite

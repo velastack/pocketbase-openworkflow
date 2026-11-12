@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/dbx"
 )
 
 // Tests for the OpenWorkflow 0.11.0 additions: step indices, recurring

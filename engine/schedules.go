@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/dbx"
 )
 
 // WorkflowSchedule is the wire/domain representation of a recurring schedule.
