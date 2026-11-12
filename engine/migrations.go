@@ -3,7 +3,7 @@ package engine
 import (
 	"database/sql"
 
-	"github.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/dbx"
 )
 
 // owMigration is a single versioned schema migration. The full set in

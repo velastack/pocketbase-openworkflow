@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/dbx"
 )
 
 // RerunWorkflowRunParams holds the inputs for RerunWorkflowRun.

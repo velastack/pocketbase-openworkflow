@@ -10,8 +10,8 @@ import (
 	"io/fs"
 	"path/filepath"
 
-	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/apis"
+	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	"github.com/velastack/pocketbase-openworkflow/engine"
 )
 

@@ -2,7 +2,7 @@
 
 package engine
 
-import "github.com/pocketbase/dbx"
+import "ganigeorgiev.com/pocketbase/dbx"
 
 // defaultConnect panics because no SQLite driver is compiled in under the
 // no_default_driver build tag. Callers must supply a ConnectFunc to Open (wired

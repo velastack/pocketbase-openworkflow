@@ -69,5 +69,5 @@ go 1.27
 
 use .
 
-replace github.com/pocketbase/pocketbase => ../pocketbase
+replace ganigeorgiev.com/pocketbase/pocketbase => ../pocketbase
 ```
